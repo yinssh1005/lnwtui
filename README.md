@@ -46,10 +46,4 @@ cargo run
 
 ## 截图
 
-可在这里放置运行截图，例如：
-
-```text
-docs/screenshot.png
-```
-
-如果仓库中暂无截图文件，可先运行程序后自行截图补充到 `docs/` 目录。
+![截图](demo.jpeg)
