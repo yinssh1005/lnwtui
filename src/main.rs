@@ -88,9 +88,9 @@ struct AppState {
 
 impl AppState {
     fn new() -> Self {
-        let cpu_model = read_cpu_model().unwrap_or_else(|_| "未知 CPU 型号".to_string());
+        let cpu_model = read_cpu_model().unwrap_or_else(|_| "Unknown CPU".to_string());
         let memory_model = read_memory_model().unwrap_or_else(|_| {
-            "未知内存型号（可尝试安装 dmidecode 并使用 root）".to_string()
+            "Unknown RAM (try dmidecode as root)".to_string()
         });
 
         Self {
@@ -155,11 +155,11 @@ impl AppState {
             }
             Ok(_) => {
                 self.gpus.clear();
-                self.gpu_message = Some("未检测到 GPU 设备信息".to_string());
+                self.gpu_message = Some("No GPU detected".to_string());
             }
             Err(err) => {
                 self.gpus.clear();
-                self.gpu_message = Some(format!("GPU 读取失败: {}", err));
+                self.gpu_message = Some(format!("GPU read err: {}", err));
             }
         }
 
@@ -173,7 +173,7 @@ impl AppState {
             Ok(v) => v,
             Err(err) => {
                 self.top_processes.clear();
-                self.process_message = Some(format!("进程信息读取失败: {err}"));
+                self.process_message = Some(format!("Proc read err: {err}"));
                 return;
             }
         };
@@ -343,20 +343,20 @@ fn read_cpu_model() -> io::Result<String> {
             }
         }
     }
-    Err(io::Error::other("未找到 CPU 型号字段"))
+    Err(io::Error::other("CPU model field not found"))
 }
 
 fn read_memory_model() -> io::Result<String> {
     if let Ok(model) = read_memory_model_dmidecode() {
         return Ok(model);
     }
-    Err(io::Error::other("无法读取内存型号"))
+    Err(io::Error::other("Cannot read RAM model"))
 }
 
 fn read_memory_model_dmidecode() -> io::Result<String> {
     let output = Command::new("dmidecode").args(["-t", "memory"]).output()?;
     if !output.status.success() {
-        return Err(io::Error::other("dmidecode 执行失败"));
+        return Err(io::Error::other("dmidecode failed"));
     }
     let text = String::from_utf8_lossy(&output.stdout);
     let mut modules = HashSet::new();
@@ -408,12 +408,12 @@ fn read_memory_model_dmidecode() -> io::Result<String> {
     );
 
     if modules.is_empty() {
-        return Err(io::Error::other("未解析出内存模块"));
+        return Err(io::Error::other("No RAM modules parsed"));
     }
 
     let mut list: Vec<_> = modules.into_iter().collect();
     list.sort();
-    Ok(format!("{} 条: {}", list.len(), list.join(" | ")))
+    Ok(format!("{} slot(s): {}", list.len(), list.join(" | ")))
 }
 
 fn push_memory_module(
@@ -447,7 +447,7 @@ fn read_cpu_snapshot() -> io::Result<CpuSnapshot> {
     let cpu_line = content
         .lines()
         .find(|line| line.starts_with("cpu "))
-        .ok_or_else(|| io::Error::other("缺少 cpu 行"))?;
+        .ok_or_else(|| io::Error::other("cpu line missing"))?;
     let mut parts = cpu_line.split_whitespace().skip(1);
     let user: u64 = parts.next().unwrap_or("0").parse().unwrap_or(0);
     let nice: u64 = parts.next().unwrap_or("0").parse().unwrap_or(0);
@@ -531,13 +531,13 @@ fn read_gpu_stats() -> io::Result<Vec<GpuStat>> {
         Ok(out) => out,
         Err(_) => {
             return Err(io::Error::other(
-                "未找到 nvidia-smi（非 NVIDIA GPU 可忽略）",
+                "nvidia-smi not found (non-NVIDIA, skip)",
             ));
         }
     };
 
     if !output.status.success() {
-        return Err(io::Error::other("nvidia-smi 调用失败"));
+        return Err(io::Error::other("nvidia-smi failed"));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -675,10 +675,10 @@ fn draw_header(frame: &mut ratatui::Frame<'_>, area: Rect) {
     let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let line = Line::from(vec![
         Span::styled(
-            "Linux TUI 资源监控  ",
+            "Linux TUI Monitor  ",
             Style::default().fg(Color::Cyan),
         ),
-        Span::raw(format!("时间: {now}  |  按 q 或 ESC 退出")),
+        Span::raw(format!("Time: {now}  |  q/ESC to quit")),
     ]);
     frame.render_widget(
         Paragraph::new(line).block(Block::default().borders(Borders::ALL)),
@@ -732,7 +732,7 @@ fn draw_left_utilization(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppSt
     );
 
     frame.render_widget(
-        Paragraph::new("NET 按 1Gbps 归一化显示").block(Block::default().borders(Borders::ALL).title("说明")),
+        Paragraph::new("NET normalized to 1Gbps").block(Block::default().borders(Borders::ALL).title("Note")),
         chunks[4],
     );
 }
@@ -761,27 +761,27 @@ fn draw_right_details(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppState
         .split(area);
 
     let base_lines = vec![
-        Line::from(format!("CPU 型号: {}", app.cpu_model)),
-        Line::from(format!("内存型号: {}", app.memory_model)),
+        Line::from(format!("CPU: {}", app.cpu_model)),
+        Line::from(format!("RAM: {}", app.memory_model)),
         Line::from(format!(
-            "内存占用: {} / {}",
+            "RAM Used: {} / {}",
             kib_to_human(app.mem_used_kb),
             kib_to_human(app.mem_total_kb)
         )),
     ];
     frame.render_widget(
         Paragraph::new(base_lines)
-            .block(Block::default().title("硬件信息").borders(Borders::ALL))
+            .block(Block::default().title("HW Info").borders(Borders::ALL))
             .wrap(Wrap { trim: true }),
         chunks[0],
     );
 
     let network_lines = vec![
-        Line::from(format!("下载速率: {}", bytes_to_human(app.net_recv_rate_bps))),
-        Line::from(format!("上传速率: {}", bytes_to_human(app.net_sent_rate_bps))),
+        Line::from(format!("DL: {}", bytes_to_human(app.net_recv_rate_bps))),
+        Line::from(format!("UL: {}", bytes_to_human(app.net_sent_rate_bps))),
     ];
     frame.render_widget(
-        Paragraph::new(network_lines).block(Block::default().title("网络").borders(Borders::ALL)),
+        Paragraph::new(network_lines).block(Block::default().title("Net").borders(Borders::ALL)),
         chunks[1],
     );
 
@@ -799,7 +799,7 @@ fn draw_gpu(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppState) {
                 Style::default().fg(Color::Magenta),
             )));
             content.push(Line::from(format!(
-                "利用率: {:.1}%  温度: {}°C  显存: {} / {} MiB",
+                "Util: {:.1}%  Temp: {}°C  VRAM: {} / {} MiB",
                 gpu.util.unwrap_or(0.0),
                 gpu.temp_c.unwrap_or(0),
                 gpu.mem_used_mb.unwrap_or(0),
@@ -808,13 +808,13 @@ fn draw_gpu(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppState) {
             content.push(Line::from(""));
         }
         if content.is_empty() {
-            vec![Line::from("未检测到 GPU 信息")]
+            vec![Line::from("No GPU info")]
         } else {
             content
         }
     };
 
-    frame.render_widget(Paragraph::new(lines).block(Block::default().title("GPU 详情").borders(Borders::ALL)), area);
+    frame.render_widget(Paragraph::new(lines).block(Block::default().title("GPU").borders(Borders::ALL)), area);
 }
 
 /// 绘制 CPU 使用率 Top10 进程列表
@@ -824,7 +824,7 @@ fn draw_process_table(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppState
             Paragraph::new(msg.as_str())
                 .block(
                     Block::default()
-                        .title("CPU Top10 进程")
+                        .title("CPU Top10")
                         .borders(Borders::ALL),
                 ),
             area,
@@ -836,7 +836,7 @@ fn draw_process_table(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppState
         Cell::from("PID"),
         Cell::from("CPU%"),
         Cell::from("RAM"),
-        Cell::from("命令行"),
+        Cell::from("CMD"),
     ])
     .style(Style::default().fg(Color::Cyan));
 
@@ -865,7 +865,7 @@ fn draw_process_table(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppState
     .header(header)
     .block(
         Block::default()
-            .title("CPU Top10 进程")
+            .title("CPU Top10")
             .borders(Borders::ALL),
     )
     .column_spacing(1);
