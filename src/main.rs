@@ -78,6 +78,7 @@ struct AppState {
     net_sent_rate_bps: f64,
     gpus: Vec<GpuStat>,
     gpu_message: Option<String>,
+    ip_addresses: Vec<String>,
     top_processes: Vec<ProcessInfo>,
     process_message: Option<String>,
     last_updated: Option<Instant>,
@@ -103,6 +104,7 @@ impl AppState {
             net_sent_rate_bps: 0.0,
             gpus: Vec::new(),
             gpu_message: None,
+            ip_addresses: Vec::new(),
             top_processes: Vec::new(),
             process_message: None,
             last_updated: None,
@@ -163,6 +165,7 @@ impl AppState {
             }
         }
 
+        self.ip_addresses = read_ip_addresses();
         self.refresh_top_processes(cpu_total_delta);
         self.last_updated = Some(now);
     }
@@ -560,6 +563,44 @@ fn read_gpu_stats() -> io::Result<Vec<GpuStat>> {
     Ok(gpus)
 }
 
+fn read_ip_addresses() -> Vec<String> {
+    let output = match Command::new("ip").args(["-4", "addr", "show"]).output() {
+        Ok(o) if o.status.success() => o,
+        _ => return vec!["N/A".to_string()],
+    };
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut current_iface = String::new();
+    let mut result = Vec::new();
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        // Interface line starts with "N: name: ..."
+        if let Some(colon_pos) = trimmed.find(": ") {
+            let prefix = &trimmed[..colon_pos];
+            if prefix.parse::<u32>().is_ok() {
+                let rest = &trimmed[colon_pos + 2..];
+                current_iface = rest.split(':').next().unwrap_or("").trim().to_string();
+                continue;
+            }
+        }
+        if trimmed.starts_with("inet ") {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if let Some(addr) = parts.get(1) {
+                if current_iface != "lo" && !current_iface.is_empty() {
+                    result.push(format!("{}: {}", current_iface, addr));
+                }
+            }
+        }
+    }
+
+    if result.is_empty() {
+        vec!["No IPv4 address found".to_string()]
+    } else {
+        result
+    }
+}
+
 fn bytes_to_human(bytes: f64) -> String {
     let units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
     let mut value = bytes.max(0.0);
@@ -657,7 +698,7 @@ fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &AppState) {
 
     let lower = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(17), Constraint::Min(8)])
+        .constraints([Constraint::Length(24), Constraint::Min(8)])
         .split(root[1]);
 
     let top = Layout::default()
@@ -757,7 +798,12 @@ fn render_gauge(
 fn draw_right_details(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(8), Constraint::Length(5), Constraint::Min(8)])
+        .constraints([
+            Constraint::Length(8),
+            Constraint::Length(5),
+            Constraint::Min(6),
+            Constraint::Length(5),
+        ])
         .split(area);
 
     let base_lines = vec![
@@ -786,6 +832,12 @@ fn draw_right_details(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppState
     );
 
     draw_gpu(frame, chunks[2], app);
+
+    let ip_lines: Vec<Line> = app.ip_addresses.iter().map(|s| Line::from(s.as_str())).collect();
+    frame.render_widget(
+        Paragraph::new(ip_lines).block(Block::default().title("IP Address").borders(Borders::ALL)),
+        chunks[3],
+    );
 }
 
 fn draw_gpu(frame: &mut ratatui::Frame<'_>, area: Rect, app: &AppState) {
